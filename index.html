@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chartside — Clinical Reference</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2218%22 fill=%22%231C2F4A%22/><text x=%2250%22 y=%2266%22 font-size=%2255%22 fill=%22%23EAF2F8%22 text-anchor=%22middle%22 font-family=%22Georgia%22>C</text></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+
+<style>
+  :root{
+    --navy: #1C2F4A;
+    --navy-mid: #2E4A73;
+    --accent: #4A7BA6;
+    --pearl: #EAF2F8;
+    --pearl-border: #C9DCEA;
+    --flag: #B33A3A;
+    --flag-bg: #FBEAEA;
+    --paper: #F7F8FA;
+    --ink: #1F2937;
+    --ink-soft: #6B7280;
+    --line: #E2E6EB;
+    --radius: 10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'Inter',sans-serif; font-size:15px; line-height:1.55;
+  }
+  h1,h2,h3,h4{ font-family:'Source Serif 4', serif; font-weight:600; color:var(--navy); margin:0 0 .5em; }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  a{ color:var(--accent); }
+  button{ font-family:inherit; cursor:pointer; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  /* ---------- App shell ---------- */
+  #app{ display:none; }
+  .topbar{
+    background:var(--navy); color:#fff; padding:14px 20px;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    border-bottom: 3px solid var(--navy-mid);
+  }
+  .topbar h1{ color:#fff; font-size:1.3rem; margin:0; letter-spacing:.02em; }
+  .topbar .subtitle{ color:#B9CBDD; font-size:.78rem; margin-left:2px; }
+  .topbar-search{ flex:1; min-width:180px; max-width:420px; margin-left:auto; }
+  .topbar-search input{
+    width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--navy-mid);
+    background:#25395A; color:#fff; font-size:.9rem;
+  }
+  .topbar-search input::placeholder{ color:#9FB4C9; }
+  .btn-new{
+    background:var(--flag); color:#fff; border:none; padding:9px 16px;
+    border-radius:8px; font-weight:600; font-size:.85rem; white-space:nowrap;
+  }
+  .btn-new:hover{ background:#9c3232; }
+  .btn-signout{ background:transparent; border:1px solid #3E5776; color:#CFE0EE; padding:8px 12px; border-radius:8px; font-size:.8rem; }
+  .btn-signout:hover{ background:#25395A; }
+
+  .layout{ display:flex; min-height:calc(100vh - 60px); }
+
+  /* Chart-tab sidebar */
+  .sidebar{
+    width:220px; flex-shrink:0; background:#fff; border-right:1px solid var(--line);
+    padding:18px 0;
+  }
+  .sidebar h2{ font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft); font-family:'Inter'; font-weight:600; padding:0 18px 8px; }
+  .tab{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 16px 10px 18px; margin: 0 0 4px 0; cursor:pointer;
+    border-left:4px solid transparent; color:var(--navy-mid); font-size:.88rem;
+    position:relative;
+  }
+  .tab:hover{ background:var(--pearl); }
+  .tab.active{ background:var(--pearl); border-left-color:var(--flag); font-weight:600; color:var(--navy); }
+  .tab .count{ font-family:'IBM Plex Mono'; font-size:.72rem; color:var(--ink-soft); background:#EDEFF2; padding:1px 7px; border-radius:10px; }
+  .tab.active .count{ background:var(--pearl-border); color:var(--navy); }
+
+  /* Main content */
+  .main{ flex:1; padding:26px 30px 60px; max-width:900px; }
+  .main-header{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px; flex-wrap:wrap; gap:8px;}
+  .empty-state{
+    text-align:center; padding:70px 20px; color:var(--ink-soft);
+  }
+  .empty-state h3{ color:var(--navy); }
+
+  /* Note cards */
+  .note-card{
+    background:#fff; border:1px solid var(--line); border-radius:var(--radius);
+    margin-bottom:14px; overflow:hidden; transition:box-shadow .15s;
+  }
+  .note-card:hover{ box-shadow:0 2px 10px rgba(28,47,74,0.07); }
+  .note-head{
+    padding:14px 18px; display:flex; justify-content:space-between; align-items:flex-start; cursor:pointer; gap:10px;
+  }
+  .note-title{ font-family:'Source Serif 4'; font-weight:600; font-size:1.05rem; color:var(--navy); margin:0; }
+  .note-meta{ font-size:.76rem; color:var(--ink-soft); margin-top:3px; }
+  .note-meta .tag{
+    display:inline-block; background:var(--pearl); color:var(--navy-mid); border:1px solid var(--pearl-border);
+    padding:1px 8px; border-radius:12px; font-size:.7rem; margin-right:5px; font-family:'IBM Plex Mono';
+  }
+  .note-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .icon-btn{
+    background:none; border:1px solid var(--line); border-radius:6px; padding:5px 9px; font-size:.78rem; color:var(--navy-mid);
+  }
+  .icon-btn:hover{ background:var(--pearl); }
+  .icon-btn.danger{ color:var(--flag); border-color:#EBC9C9; }
+  .icon-btn.danger:hover{ background:var(--flag-bg); }
+
+  .note-body{ padding:0 18px 18px; border-top:1px solid var(--line); display:none; }
+  .note-body.open{ display:block; padding-top:14px; }
+  .rendered h1,.rendered h2,.rendered h3{ font-size:1.1rem; margin-top:1em; }
+  .rendered table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:.88rem; }
+  .rendered th{ background:var(--navy); color:#fff; padding:7px 10px; text-align:left; }
+  .rendered td{ padding:6px 10px; border-bottom:1px solid var(--line); }
+  .rendered tr:nth-child(even) td{ background:var(--paper); }
+  .rendered blockquote{
+    background:var(--pearl); border-left:4px solid var(--accent); margin:12px 0; padding:10px 14px; border-radius:0 6px 6px 0; color:var(--navy-mid);
+  }
+  .rendered code{ background:#EDEFF2; padding:1px 5px; border-radius:4px; font-size:.85em; }
+  .rendered img{ max-width:100%; border-radius:8px; border:1px solid var(--line); margin:10px 0; display:block; }
+  .rendered p:has(a):has(> a:only-child){ margin: 6px 0; }
+  .rendered a{ font-weight:500; }
+  .rendered ul, .rendered ol{ padding-left:1.3em; }
+
+  /* Editor */
+  .editor-wrap{ background:#fff; border:1px solid var(--line); border-radius:var(--radius); padding:20px; margin-bottom:20px; }
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:.78rem; font-weight:600; color:var(--navy-mid); margin-bottom:4px; }
+  .field input, .field select{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:7px; font-size:.9rem; font-family:inherit;
+  }
+  .split{ display:flex; gap:16px; margin-top:6px; }
+  .split > div{ flex:1; min-width:0; }
+  .split textarea{
+    width:100%; height:280px; padding:12px; border:1px solid var(--line); border-radius:7px;
+    font-family:'IBM Plex Mono'; font-size:.85rem; line-height:1.6; resize:vertical;
+  }
+  .preview-box{
+    height:280px; overflow-y:auto; border:1px dashed var(--line); border-radius:7px; padding:12px 14px; background:var(--paper);
+  }
+  .preview-label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); margin-bottom:6px; }
+  .editor-actions{ display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+  .btn-primary{ background:var(--navy); color:#fff; border:none; padding:9px 18px; border-radius:7px; font-weight:600; font-size:.85rem; }
+  .btn-primary:hover{ background:var(--navy-mid); }
+  .btn-secondary{ background:none; border:1px solid var(--line); padding:9px 16px; border-radius:7px; font-size:.85rem; color:var(--ink); }
+  .btn-secondary:hover{ background:var(--paper); }
+
+  @media (max-width: 720px){
+    .layout{ flex-direction:column; }
+    .sidebar{ width:100%; display:flex; overflow-x:auto; padding:10px 8px; border-right:none; border-bottom:1px solid var(--line); }
+    .sidebar h2{ display:none; }
+    .tab{ border-left:none; border-bottom:4px solid transparent; white-space:nowrap; margin:0 2px; }
+    .tab.active{ border-bottom-color:var(--flag); }
+    .split{ flex-direction:column; }
+    .main{ padding:18px 14px 60px; }
+  }
+
+  /* ---------- Auth screen ---------- */
+  #auth-screen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--navy);
+    padding:20px;
+  }
+  .auth-card{
+    background:#fff; border-radius:14px; padding:36px 32px; width:100%; max-width:380px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.25);
+  }
+  .auth-card h1{ font-size:1.5rem; margin-bottom:4px; }
+  .auth-card p.sub{ color:var(--ink-soft); font-size:.85rem; margin-bottom:22px; }
+  .auth-card .field{ margin-bottom:14px; }
+  .auth-toggle{ text-align:center; margin-top:16px; font-size:.83rem; color:var(--ink-soft); }
+  .auth-toggle a{ cursor:pointer; }
+  .auth-error{ background:var(--flag-bg); color:var(--flag); padding:8px 12px; border-radius:7px; font-size:.82rem; margin-bottom:14px; display:none; }
+  .config-card p{ font-size:.85rem; color:var(--ink-soft); line-height:1.6; }
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="auth-screen" style="display:none;">
+  <div class="auth-card">
+    <h1>Chartside</h1>
+    <p class="sub">Your clinical reference, signed in privately.</p>
+    <div class="auth-error" id="auth-error"></div>
+    <div class="field"><label>Email</label><input id="auth-email" type="email" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input id="auth-password" type="password" autocomplete="current-password"></div>
+    <button class="btn-primary" style="width:100%;" id="auth-submit" onclick="handleAuth()">Sign in</button>
+    <div class="auth-toggle">
+      <span id="auth-mode-text">First time here?</span> <a id="auth-mode-link" onclick="toggleAuthMode()">Create an account</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MAIN APP ============ -->
+<div id="app">
+  <div class="topbar">
+    <div>
+      <h1>Chartside</h1>
+      <div class="subtitle">Personal PEM reference</div>
+    </div>
+    <div class="topbar-search">
+      <input id="search-input" placeholder="Search notes, tags, findings…" oninput="renderNotes()">
+    </div>
+    <button class="btn-new" onclick="openEditor()">+ New note</button>
+    <button class="btn-signout" onclick="signOut()">Sign out</button>
+  </div>
+
+  <div class="layout">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <div id="editor-slot"></div>
+      <div class="main-header">
+        <h2 id="section-title" style="margin:0;">All notes</h2>
+      </div>
+      <div id="notes-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- Config / Supabase init ---------------- */
+const SUPABASE_URL = 'https://rbmmjnekvjskztzmxovh.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_szHSGSxd79mPcxlhnJMRVQ_8Stol9_u';
+
+let sb;
+
+let currentUser = null;
+let notes = [];
+let activeTopic = 'All';
+let editingId = null;
+let isSignUp = false;
+
+async function init(){
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    currentUser = session.user;
+    showApp();
+  } else {
+    document.getElementById('auth-screen').style.display='flex';
+  }
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if(session){ currentUser = session.user; showApp(); }
+  });
+}
+
+function toggleAuthMode(){
+  isSignUp = !isSignUp;
+  document.getElementById('auth-submit').textContent = isSignUp ? 'Create account' : 'Sign in';
+  document.getElementById('auth-mode-text').textContent = isSignUp ? 'Already have an account?' : 'First time here?';
+  document.getElementById('auth-mode-link').textContent = isSignUp ? 'Sign in' : 'Create an account';
+}
+
+async function handleAuth(){
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errBox = document.getElementById('auth-error');
+  errBox.style.display = 'none';
+  if(!email || !password){ errBox.textContent = 'Enter both email and password.'; errBox.style.display='block'; return; }
+
+  let result;
+  if(isSignUp){
+    result = await sb.auth.signUp({ email, password });
+    if(!result.error && result.data.user && !result.data.session){
+      errBox.style.color = 'var(--navy)'; errBox.style.background = 'var(--pearl)';
+      errBox.textContent = 'Account created — check your email to confirm, then sign in.';
+      errBox.style.display = 'block';
+      return;
+    }
+  } else {
+    result = await sb.auth.signInWithPassword({ email, password });
+  }
+  if(result.error){
+    errBox.style.color = 'var(--flag)'; errBox.style.background = 'var(--flag-bg)';
+    errBox.textContent = result.error.message;
+    errBox.style.display = 'block';
+  }
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function showApp(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app').style.display='block';
+  await loadNotes();
+}
+
+/* ---------------- Notes CRUD ---------------- */
+async function loadNotes(){
+  const { data, error } = await sb.from('notes').select('*').order('created_at', { ascending:false });
+  if(error){ console.error(error); return; }
+  notes = data || [];
+  renderSidebar();
+  renderNotes();
+}
+
+function getTopics(){
+  const map = {};
+  notes.forEach(n => { const t = n.topic || 'Uncategorized'; map[t] = (map[t]||0)+1; });
+  return map;
+}
+
+function renderSidebar(){
+  const topics = getTopics();
+  const sidebar = document.getElementById('sidebar');
+  let html = '<h2>Topics</h2>';
+  html += `<div class="tab ${activeTopic==='All'?'active':''}" onclick="setTopic('All')"><span>All notes</span><span class="count">${notes.length}</span></div>`;
+  Object.keys(topics).sort().forEach(t => {
+    html += `<div class="tab ${activeTopic===t?'active':''}" onclick="setTopic('${t.replace(/'/g,"\\'")}')"><span>${escapeHtml(t)}</span><span class="count">${topics[t]}</span></div>`;
+  });
+  sidebar.innerHTML = html;
+}
+
+function setTopic(t){
+  activeTopic = t;
+  document.getElementById('section-title').textContent = t === 'All' ? 'All notes' : t;
+  renderSidebar();
+  renderNotes();
+}
+
+function renderNotes(){
+  const query = document.getElementById('search-input').value.toLowerCase().trim();
+  let filtered = notes.filter(n => activeTopic === 'All' || (n.topic || 'Uncategorized') === activeTopic);
+  if(query){
+    filtered = filtered.filter(n =>
+      (n.title||'').toLowerCase().includes(query) ||
+      (n.body||'').toLowerCase().includes(query) ||
+      (n.tags||[]).join(' ').toLowerCase().includes(query)
+    );
+  }
+  const list = document.getElementById('notes-list');
+  if(filtered.length === 0){
+    list.innerHTML = `<div class="empty-state"><h3>No notes yet</h3><p>Start building your reference — add your first note.</p></div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(n => `
+    <div class="note-card">
+      <div class="note-head" onclick="toggleNote('${n.id}')">
+        <div>
+          <p class="note-title">${escapeHtml(n.title)}</p>
+          <div class="note-meta">
+            ${(n.tags||[]).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+            <span class="mono">${new Date(n.created_at).toLocaleDateString()}</span>
+          </div>
+        </div>
+        <div class="note-actions" onclick="event.stopPropagation()">
+          <button class="icon-btn" onclick="openEditor('${n.id}')">Edit</button>
+          <button class="icon-btn danger" onclick="deleteNote('${n.id}')">Delete</button>
+        </div>
+      </div>
+      <div class="note-body" id="body-${n.id}"><div class="rendered">${marked.parse(n.body || '')}</div></div>
+    </div>
+  `).join('');
+}
+
+function toggleNote(id){
+  const el = document.getElementById('body-'+id);
+  el.classList.toggle('open');
+}
+
+async function deleteNote(id){
+  if(!confirm('Delete this note? This cannot be undone.')) return;
+  const { error } = await sb.from('notes').delete().eq('id', id);
+  if(error){ alert('Could not delete: ' + error.message); return; }
+  await loadNotes();
+}
+
+/* ---------------- Editor ---------------- */
+function openEditor(id){
+  editingId = id || null;
+  const note = id ? notes.find(n => n.id === id) : { title:'', topic:'', tags:[], body:'' };
+  const slot = document.getElementById('editor-slot');
+  slot.innerHTML = `
+    <div class="editor-wrap">
+      <h3>${id ? 'Edit note' : 'New note'}</h3>
+      <div class="field"><label>Title</label><input id="ed-title" value="${escapeAttr(note.title)}" placeholder="e.g. Febrile neonate workup"></div>
+      <div style="display:flex; gap:12px;">
+        <div class="field" style="flex:1;"><label>Topic</label><input id="ed-topic" value="${escapeAttr(note.topic||'')}" placeholder="e.g. Infectious disease"></div>
+        <div class="field" style="flex:1;"><label>Tags (comma separated)</label><input id="ed-tags" value="${escapeAttr((note.tags||[]).join(', '))}" placeholder="e.g. red-flag, neonate"></div>
+      </div>
+      <div class="split">
+        <div>
+          <div class="preview-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Markdown</span>
+            <span>
+              <button class="icon-btn" onclick="document.getElementById('img-input').click()" type="button">+ Insert image</button>
+              <button class="icon-btn" onclick="document.getElementById('file-input').click()" type="button">+ Attach file</button>
+              <input type="file" id="img-input" accept="image/*" style="display:none;" onchange="uploadImage(event)">
+              <input type="file" id="file-input" style="display:none;" onchange="uploadFile(event)">
+              <span id="img-status" style="font-size:.72rem; color:var(--ink-soft); margin-left:6px;"></span>
+            </span>
+          </div>
+          <textarea id="ed-body" oninput="updatePreview()" placeholder="# Heading&#10;**bold**, - bullets, tables, > blockquote for callouts">${escapeHtml(note.body||'')}</textarea>
+        </div>
+        <div>
+          <div class="preview-label">Preview</div>
+          <div class="preview-box rendered" id="ed-preview"></div>
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button class="btn-secondary" onclick="closeEditor()">Cancel</button>
+        <button class="btn-primary" onclick="saveNote()">Save note</button>
+      </div>
+    </div>
+  `;
+  updatePreview();
+  slot.scrollIntoView({ behavior:'smooth' });
+}
+
+async function uploadFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('img-status');
+  statusEl.textContent = 'Uploading…';
+
+  const path = `${currentUser.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+  const { error: uploadError } = await sb.storage.from('note-attachments').upload(path, file);
+  if(uploadError){
+    statusEl.textContent = '';
+    alert('File upload failed: ' + uploadError.message);
+    return;
+  }
+  const { data } = sb.storage.from('note-attachments').getPublicUrl(path);
+  const url = data.publicUrl;
+
+  const sizeKB = Math.round(file.size / 1024);
+  const textarea = document.getElementById('ed-body');
+  const cursorPos = textarea.selectionStart;
+  const insertText = `\n📎 [${file.name}](${url}) (${sizeKB} KB)\n`;
+  textarea.value = textarea.value.slice(0, cursorPos) + insertText + textarea.value.slice(cursorPos);
+  statusEl.textContent = '';
+  event.target.value = '';
+  updatePreview();
+}
+
+async function uploadImage(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('img-status');
+  statusEl.textContent = 'Uploading…';
+
+  const path = `${currentUser.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+  const { error: uploadError } = await sb.storage.from('note-images').upload(path, file);
+  if(uploadError){
+    statusEl.textContent = '';
+    alert('Image upload failed: ' + uploadError.message);
+    return;
+  }
+  const { data } = sb.storage.from('note-images').getPublicUrl(path);
+  const url = data.publicUrl;
+
+  const textarea = document.getElementById('ed-body');
+  const cursorPos = textarea.selectionStart;
+  const insertText = `\n![${file.name.replace(/\.[^/.]+$/, '')}](${url})\n`;
+  textarea.value = textarea.value.slice(0, cursorPos) + insertText + textarea.value.slice(cursorPos);
+  statusEl.textContent = '';
+  event.target.value = '';
+  updatePreview();
+}
+
+function updatePreview(){
+  const body = document.getElementById('ed-body').value;
+  document.getElementById('ed-preview').innerHTML = marked.parse(body || '*Nothing yet*');
+}
+
+function closeEditor(){
+  document.getElementById('editor-slot').innerHTML = '';
+  editingId = null;
+}
+
+async function saveNote(){
+  const title = document.getElementById('ed-title').value.trim();
+  const topic = document.getElementById('ed-topic').value.trim();
+  const tags = document.getElementById('ed-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  const body = document.getElementById('ed-body').value;
+  if(!title){ alert('Please add a title.'); return; }
+
+  const payload = { title, topic, tags, body, user_id: currentUser.id };
+  let error;
+  if(editingId){
+    ({ error } = await sb.from('notes').update(payload).eq('id', editingId));
+  } else {
+    ({ error } = await sb.from('notes').insert(payload));
+  }
+  if(error){ alert('Could not save: ' + error.message); return; }
+  closeEditor();
+  await loadNotes();
+}
+
+/* ---------------- Utilities ---------------- */
+function escapeHtml(str){
+  return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(str){ return escapeHtml(str); }
+
+init();
+</script>
+</body>
+</html>
