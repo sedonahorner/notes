@@ -107,6 +107,10 @@
     display:inline-block; background:var(--pearl); color:var(--navy-mid); border:1px solid var(--pearl-border);
     padding:1px 8px; border-radius:12px; font-size:.7rem; margin-right:5px; font-family:'IBM Plex Mono';
   }
+  .qnum .tag{
+    display:inline-block; background:var(--pearl); color:var(--navy-mid); border:1px solid var(--pearl-border);
+    padding:1px 8px; border-radius:12px; font-size:.68rem; font-family:'IBM Plex Mono'; text-transform:none; letter-spacing:0;
+  }
   .note-actions{ display:flex; gap:6px; flex-shrink:0; }
   .icon-btn{
     background:none; border:1px solid var(--line); border-radius:6px; padding:5px 9px; font-size:.78rem; color:var(--navy-mid);
@@ -637,7 +641,7 @@ async function generateQuestions(){
 
   try {
     const { data: feedbackHistory } = await sb.from('review_questions')
-      .select('question, difficulty_feedback, feedback_note')
+      .select('question, difficulty_feedback, feedback_note, original_question, original_answer')
       .eq('user_id', currentUser.id)
       .or('difficulty_feedback.not.is.null,feedback_note.not.is.null')
       .order('created_at', { ascending:false })
@@ -657,35 +661,94 @@ async function generateQuestions(){
   }
 }
 
+let editingIndices = new Set();
+
 function renderGeneratedQuestions(){
   const resultsEl = document.getElementById('qgen-results');
   if(generatedQuestions.length === 0){ resultsEl.innerHTML=''; return; }
-  resultsEl.innerHTML = generatedQuestions.map((q, i) => `
+  resultsEl.innerHTML = generatedQuestions.map((q, i) => {
+    const isEditing = editingIndices.has(i);
+    return `
     <div class="qcard" id="qcard-${i}">
-      <div class="qnum">Question ${i+1}</div>
-      <div class="qtext">${escapeHtml(q.question)}</div>
-      <div class="qanswer" id="qa-${i}">${escapeHtml(q.answer)}</div>
-      <div class="feedback-row">
-        <button class="icon-btn" onclick="toggleAnswer(${i})">Show answer</button>
-        <span style="width:1px; height:16px; background:var(--line); margin:0 4px;"></span>
-        <button class="fb-btn ${q.feedback==='too_easy'?'selected':''}" onclick="setFeedback(${i},'too_easy')">Too easy</button>
-        <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
-        <button class="fb-btn ${q.feedback==='too_hard'?'selected':''}" onclick="setFeedback(${i},'too_hard')">Too hard</button>
-        <button class="icon-btn" id="regen-btn-${i}" onclick="regenerateQuestion(${i})" style="margin-left:auto;">↻ Regenerate this one</button>
-        <button class="icon-btn danger" onclick="deleteQuestion(${i})">Delete</button>
-      </div>
-      <div style="margin-top:8px;">
-        <input type="text" placeholder="Optional: what specifically was off about this one?"
-          value="${escapeAttr(q.note||'')}"
-          onblur="saveQuestionNote(${i}, this.value)"
-          style="width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:.82rem;">
-      </div>
+      <div class="qnum">Question ${i+1} ${q.edited ? '<span class="tag" style="margin-left:6px;">edited by you</span>' : ''}</div>
+      ${isEditing ? `
+        <input type="text" id="edit-q-${i}" value="${escapeAttr(q.question)}" style="width:100%; font-weight:600; color:var(--navy); padding:6px 10px; border:1px solid var(--accent); border-radius:6px; margin:6px 0 8px; font-size:.95rem;">
+        <textarea id="edit-a-${i}" style="width:100%; min-height:70px; padding:8px 10px; border:1px solid var(--accent); border-radius:6px; font-size:.88rem; margin-bottom:10px;">${escapeHtml(q.answer)}</textarea>
+        <div class="feedback-row">
+          <button class="btn-primary" style="padding:5px 12px; font-size:.8rem;" onclick="saveEdit(${i})">Save edit</button>
+          <button class="btn-secondary" style="padding:5px 12px; font-size:.8rem;" onclick="cancelEdit(${i})">Cancel</button>
+        </div>
+      ` : `
+        <div class="qtext">${escapeHtml(q.question)}</div>
+        <div class="qanswer" id="qa-${i}">${escapeHtml(q.answer)}</div>
+        <div class="feedback-row">
+          <button class="icon-btn" onclick="toggleAnswer(${i})">Show answer</button>
+          <button class="icon-btn" onclick="startEdit(${i})">✏️ Edit</button>
+          <span style="width:1px; height:16px; background:var(--line); margin:0 4px;"></span>
+          <button class="fb-btn ${q.feedback==='too_easy'?'selected':''}" onclick="setFeedback(${i},'too_easy')">Too easy</button>
+          <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
+          <button class="fb-btn ${q.feedback==='too_hard'?'selected':''}" onclick="setFeedback(${i},'too_hard')">Too hard</button>
+          <button class="icon-btn" id="regen-btn-${i}" onclick="regenerateQuestion(${i})" style="margin-left:auto;">↻ Regenerate this one</button>
+          <button class="icon-btn danger" onclick="deleteQuestion(${i})">Delete</button>
+        </div>
+        <div style="margin-top:8px;">
+          <input type="text" placeholder="Optional: what specifically was off about this one?"
+            value="${escapeAttr(q.note||'')}"
+            onblur="saveQuestionNote(${i}, this.value)"
+            style="width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:.82rem;">
+        </div>
+      `}
     </div>
-  `).join('') + `
+  `;
+  }).join('') + `
     <div class="editor-actions">
       <button class="btn-primary" onclick="saveQuestionsAsNote()">Save these as a note</button>
     </div>
   `;
+}
+
+function startEdit(i){
+  editingIndices.add(i);
+  renderGeneratedQuestions();
+}
+
+function cancelEdit(i){
+  editingIndices.delete(i);
+  renderGeneratedQuestions();
+}
+
+async function saveEdit(i){
+  const newQuestion = document.getElementById(`edit-q-${i}`).value.trim();
+  const newAnswer = document.getElementById(`edit-a-${i}`).value.trim();
+  const q = generatedQuestions[i];
+
+  if(!q.edited){
+    q.originalQuestion = q.question;
+    q.originalAnswer = q.answer;
+  }
+  q.question = newQuestion;
+  q.answer = newAnswer;
+  q.edited = true;
+  editingIndices.delete(i);
+  renderGeneratedQuestions();
+
+  try {
+    if(q.dbId){
+      await sb.from('review_questions').update({
+        question: newQuestion, answer: newAnswer,
+        original_question: q.originalQuestion, original_answer: q.originalAnswer,
+        difficulty_feedback: 'edited'
+      }).eq('id', q.dbId);
+    } else {
+      const { data } = await sb.from('review_questions').insert({
+        user_id: currentUser.id,
+        question: newQuestion, answer: newAnswer,
+        original_question: q.originalQuestion, original_answer: q.originalAnswer,
+        difficulty_feedback: 'edited'
+      }).select().single();
+      if(data){ q.dbId = data.id; }
+    }
+  } catch(e){ /* non-blocking */ }
 }
 
 function toggleAnswer(i){
