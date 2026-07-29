@@ -639,7 +639,7 @@ async function generateQuestions(){
     const { data: feedbackHistory } = await sb.from('review_questions')
       .select('question, difficulty_feedback, feedback_note')
       .eq('user_id', currentUser.id)
-      .not('difficulty_feedback', 'is', null)
+      .or('difficulty_feedback.not.is.null,feedback_note.not.is.null')
       .order('created_at', { ascending:false })
       .limit(15);
 
@@ -661,7 +661,7 @@ function renderGeneratedQuestions(){
   const resultsEl = document.getElementById('qgen-results');
   if(generatedQuestions.length === 0){ resultsEl.innerHTML=''; return; }
   resultsEl.innerHTML = generatedQuestions.map((q, i) => `
-    <div class="qcard">
+    <div class="qcard" id="qcard-${i}">
       <div class="qnum">Question ${i+1}</div>
       <div class="qtext">${escapeHtml(q.question)}</div>
       <div class="qanswer" id="qa-${i}">${escapeHtml(q.answer)}</div>
@@ -671,6 +671,8 @@ function renderGeneratedQuestions(){
         <button class="fb-btn ${q.feedback==='too_easy'?'selected':''}" onclick="setFeedback(${i},'too_easy')">Too easy</button>
         <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
         <button class="fb-btn ${q.feedback==='too_hard'?'selected':''}" onclick="setFeedback(${i},'too_hard')">Too hard</button>
+        <button class="icon-btn" id="regen-btn-${i}" onclick="regenerateQuestion(${i})" style="margin-left:auto;">↻ Regenerate this one</button>
+        <button class="icon-btn danger" onclick="deleteQuestion(${i})">Delete</button>
       </div>
       <div style="margin-top:8px;">
         <input type="text" placeholder="Optional: what specifically was off about this one?"
@@ -688,6 +690,47 @@ function renderGeneratedQuestions(){
 
 function toggleAnswer(i){
   document.getElementById(`qa-${i}`).classList.toggle('open');
+}
+
+function deleteQuestion(i){
+  generatedQuestions.splice(i, 1);
+  renderGeneratedQuestions();
+}
+
+async function regenerateQuestion(i){
+  const q = generatedQuestions[i];
+  const btn = document.getElementById(`regen-btn-${i}`);
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Regenerating…';
+
+  try {
+    const articleText = document.getElementById('article-text').value.trim();
+    const calibrationNotes = document.getElementById('calibration-notes').value;
+
+    const { data, error } = await sb.functions.invoke('generate-questions', {
+      body: {
+        articleText,
+        calibrationNotes,
+        regenerate: {
+          question: q.question,
+          answer: q.answer,
+          feedback: q.feedback,
+          note: q.note
+        }
+      }
+    });
+    if(error) throw error;
+    const replacement = (data.questions || [])[0];
+    if(!replacement){ throw new Error('No replacement question returned.'); }
+
+    generatedQuestions[i] = { question: replacement.question, answer: replacement.answer, feedback:null, note:'', dbId:null };
+    renderGeneratedQuestions();
+  } catch(e){
+    alert("Couldn't regenerate: " + (e.message || String(e)));
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 async function ensureQuestionSaved(i){
