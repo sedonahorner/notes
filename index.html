@@ -636,8 +636,15 @@ async function generateQuestions(){
   resultsEl.innerHTML = '';
 
   try {
+    const { data: feedbackHistory } = await sb.from('review_questions')
+      .select('question, difficulty_feedback, feedback_note')
+      .eq('user_id', currentUser.id)
+      .not('difficulty_feedback', 'is', null)
+      .order('created_at', { ascending:false })
+      .limit(15);
+
     const { data, error } = await sb.functions.invoke('generate-questions', {
-      body: { articleText, calibrationNotes }
+      body: { articleText, calibrationNotes, recentFeedback: feedbackHistory || [] }
     });
     if(error) throw error;
     generatedQuestions = (data.questions || []).map(q => ({ ...q, feedback:null, note:'' }));
@@ -665,6 +672,12 @@ function renderGeneratedQuestions(){
         <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
         <button class="fb-btn ${q.feedback==='too_hard'?'selected':''}" onclick="setFeedback(${i},'too_hard')">Too hard</button>
       </div>
+      <div style="margin-top:8px;">
+        <input type="text" placeholder="Optional: what specifically was off about this one?"
+          value="${escapeAttr(q.note||'')}"
+          onblur="saveQuestionNote(${i}, this.value)"
+          style="width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:.82rem;">
+      </div>
     </div>
   `).join('') + `
     <div class="editor-actions">
@@ -677,18 +690,35 @@ function toggleAnswer(i){
   document.getElementById(`qa-${i}`).classList.toggle('open');
 }
 
+async function ensureQuestionSaved(i){
+  const q = generatedQuestions[i];
+  if(q.dbId) return q.dbId;
+  const { data, error } = await sb.from('review_questions').insert({
+    user_id: currentUser.id,
+    question: q.question,
+    answer: q.answer,
+    difficulty_feedback: q.feedback,
+    feedback_note: q.note || null
+  }).select().single();
+  if(!error && data){ generatedQuestions[i].dbId = data.id; }
+  return generatedQuestions[i].dbId;
+}
+
 async function setFeedback(i, value){
   generatedQuestions[i].feedback = generatedQuestions[i].feedback === value ? null : value;
   renderGeneratedQuestions();
-  // Restore expanded answers state isn't preserved on re-render; store feedback for calibration history
-  try {
-    await sb.from('review_questions').insert({
-      user_id: currentUser.id,
-      question: generatedQuestions[i].question,
-      answer: generatedQuestions[i].answer,
-      difficulty_feedback: generatedQuestions[i].feedback
-    });
-  } catch(e){ /* non-blocking */ }
+  const id = await ensureQuestionSaved(i);
+  if(id){
+    await sb.from('review_questions').update({ difficulty_feedback: generatedQuestions[i].feedback }).eq('id', id);
+  }
+}
+
+async function saveQuestionNote(i, note){
+  generatedQuestions[i].note = note;
+  const id = await ensureQuestionSaved(i);
+  if(id){
+    await sb.from('review_questions').update({ feedback_note: note }).eq('id', id);
+  }
 }
 
 async function saveQuestionsAsNote(){
