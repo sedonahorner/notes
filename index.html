@@ -439,8 +439,9 @@ function renderNotes(){
     <div class="note-card">
       <div class="note-head" onclick="${n.document_url ? `window.open('${n.document_url}', '_blank')` : `toggleNote('${n.id}')`}">
         <div>
-          <p class="note-title">${escapeHtml(n.title)}${n.document_url ? ` <span class="tag" style="margin-left:4px;">${escapeHtml(n.document_name || 'document')}</span>` : ''}</p>
+          <p class="note-title">${escapeHtml(n.title)}</p>
           <div class="note-meta">
+            ${n.document_url ? `<span class="tag">${escapeHtml(n.document_name || 'document')}</span>` : ''}
             ${(n.tags||[]).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
             <span class="mono">${new Date(n.created_at).toLocaleDateString()}</span>
           </div>
