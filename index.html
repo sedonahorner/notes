@@ -437,9 +437,9 @@ function renderNotes(){
   }
   list.innerHTML = filtered.map(n => `
     <div class="note-card">
-      <div class="note-head" onclick="toggleNote('${n.id}')">
+      <div class="note-head" onclick="${n.document_url ? `window.open('${n.document_url}', '_blank')` : `toggleNote('${n.id}')`}">
         <div>
-          <p class="note-title">${escapeHtml(n.title)}</p>
+          <p class="note-title">${escapeHtml(n.title)}${n.document_url ? ` <span class="tag" style="margin-left:4px;">${escapeHtml(n.document_name || 'document')}</span>` : ''}</p>
           <div class="note-meta">
             ${(n.tags||[]).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
             <span class="mono">${new Date(n.created_at).toLocaleDateString()}</span>
@@ -450,7 +450,7 @@ function renderNotes(){
           <button class="icon-btn danger" onclick="deleteNote('${n.id}')">Delete</button>
         </div>
       </div>
-      <div class="note-body" id="body-${n.id}"><div class="rendered">${marked.parse(n.body || '')}</div></div>
+      ${n.document_url ? '' : `<div class="note-body" id="body-${n.id}"><div class="rendered">${marked.parse(n.body || '')}</div></div>`}
     </div>
   `).join('');
 }
@@ -468,6 +468,39 @@ async function deleteNote(id){
 }
 
 /* ---------------- Editor ---------------- */
+async function handleNoteDocUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('note-doc-status');
+  statusEl.textContent = 'Uploading…';
+
+  try {
+    const path = `${currentUser.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+    const { error } = await sb.storage.from('note-attachments').upload(path, file);
+    if(error) throw error;
+    const { data } = sb.storage.from('note-attachments').getPublicUrl(path);
+
+    document.getElementById('ed-doc-url').value = data.publicUrl;
+    document.getElementById('ed-doc-name').value = file.name;
+    statusEl.innerHTML = `Attached: ${escapeHtml(file.name)} <a onclick="removeNoteDocument()" style="cursor:pointer; margin-left:8px;">Remove</a>`;
+
+    const titleField = document.getElementById('ed-title');
+    if(!titleField.value.trim()){
+      titleField.value = file.name.replace(/\.[^/.]+$/, '');
+    }
+  } catch(e){
+    statusEl.textContent = '';
+    alert('Could not upload that file: ' + e.message);
+  }
+}
+
+function removeNoteDocument(){
+  document.getElementById('ed-doc-url').value = '';
+  document.getElementById('ed-doc-name').value = '';
+  document.getElementById('note-doc-status').innerHTML = '';
+  document.getElementById('note-doc-input').value = '';
+}
+
 function openEditor(id){
   editingId = id || null;
   const note = id ? notes.find(n => n.id === id) : { title:'', topic:'', tags:[], body:'' };
@@ -475,6 +508,15 @@ function openEditor(id){
   slot.innerHTML = `
     <div class="editor-wrap">
       <h3>${id ? 'Edit note' : 'New note'}</h3>
+      <div class="field">
+        <label>Attach a document (PDF, Word, etc.) — clicking the note's title will open it directly</label>
+        <input type="file" id="note-doc-input" onchange="handleNoteDocUpload(event)" style="border:1px solid var(--line); border-radius:7px; padding:8px 10px; width:100%; font-size:.85rem;">
+        <input type="hidden" id="ed-doc-url" value="${escapeAttr(note.document_url||'')}">
+        <input type="hidden" id="ed-doc-name" value="${escapeAttr(note.document_name||'')}">
+        <div id="note-doc-status" style="font-size:.78rem; color:var(--ink-soft); margin-top:5px;">
+          ${note.document_name ? `Attached: ${escapeHtml(note.document_name)} <a onclick="removeNoteDocument()" style="cursor:pointer; margin-left:8px;">Remove</a>` : ''}
+        </div>
+      </div>
       <div class="field"><label>Title</label><input id="ed-title" value="${escapeAttr(note.title)}" placeholder="e.g. Febrile neonate workup"></div>
       <div style="display:flex; gap:12px;">
         <div class="field" style="flex:1;"><label>Topic</label><input id="ed-topic" value="${escapeAttr(note.topic||'')}" placeholder="e.g. Infectious disease"></div>
@@ -597,9 +639,11 @@ async function saveNote(){
   const topic = document.getElementById('ed-topic').value.trim();
   const tags = document.getElementById('ed-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
   const body = document.getElementById('ed-body').value;
+  const documentUrl = document.getElementById('ed-doc-url').value || null;
+  const documentName = document.getElementById('ed-doc-name').value || null;
   if(!title){ alert('Please add a title.'); return; }
 
-  const payload = { title, topic, tags, body, user_id: currentUser.id };
+  const payload = { title, topic, tags, body, document_url: documentUrl, document_name: documentName, user_id: currentUser.id };
   let error;
   if(editingId){
     ({ error } = await sb.from('notes').update(payload).eq('id', editingId));
@@ -611,9 +655,30 @@ async function saveNote(){
   await loadNotes();
 }
 
-/* ---------------- File extraction for question generator ---------------- */
+/* ---------------- Shared file text extraction ---------------- */
 if(window.pdfjsLib){
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+async function extractFileText(file){
+  const name = file.name.toLowerCase();
+  let text = '';
+  if(name.endsWith('.pdf')){
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    for(let i = 1; i <= pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + '\n\n';
+    }
+  } else if(name.endsWith('.docx')){
+    const buffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    text = result.value;
+  } else {
+    text = await file.text();
+  }
+  return text.trim();
 }
 
 async function handleArticleFile(event){
@@ -624,27 +689,9 @@ async function handleArticleFile(event){
   statusEl.textContent = 'Reading file…';
 
   try {
-    let text = '';
-    const name = file.name.toLowerCase();
-
-    if(name.endsWith('.pdf')){
-      const buffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-      for(let i = 1; i <= pdf.numPages; i++){
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(item => item.str).join(' ') + '\n\n';
-      }
-    } else if(name.endsWith('.docx')){
-      const buffer = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-      text = result.value;
-    } else {
-      text = await file.text();
-    }
-
-    textarea.value = text.trim();
-    statusEl.textContent = `Loaded "${file.name}" (${text.trim().split(/\s+/).length} words)`;
+    const text = await extractFileText(file);
+    textarea.value = text;
+    statusEl.textContent = `Loaded "${file.name}" (${text.split(/\s+/).length} words)`;
   } catch(e){
     statusEl.textContent = '';
     alert('Could not read that file: ' + e.message);
@@ -696,6 +743,9 @@ async function openQuestionGenerator(){
         <div style="display:flex; gap:8px;">
           <input type="text" id="topic-request" placeholder="e.g. the dosing table for hydroxyurea" style="flex:1; padding:8px 10px; border:1px solid var(--pearl-border); border-radius:6px; font-size:.85rem;">
           <button class="icon-btn" id="topic-btn" onclick="addTargetedQuestion()">+ Add question</button>
+        </div>
+        <div style="text-align:right; margin-top:8px;">
+          <button class="icon-btn" onclick="addManualQuestion()">+ Write your own question</button>
         </div>
       </div>
       <div id="qgen-results" style="margin-top:20px;"></div>
@@ -826,13 +876,25 @@ function renderGeneratedQuestions(){
   `;
 }
 
+function addManualQuestion(){
+  generatedQuestions.push({ question:'', answer:'', feedback:null, note:'', dbId:null, manual:true });
+  const idx = generatedQuestions.length - 1;
+  editingIndices.add(idx);
+  renderGeneratedQuestions();
+  document.getElementById(`qcard-${idx}`)?.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
 function startEdit(i){
   editingIndices.add(i);
   renderGeneratedQuestions();
 }
 
 function cancelEdit(i){
+  const q = generatedQuestions[i];
   editingIndices.delete(i);
+  if(q.manual && !q.question){
+    generatedQuestions.splice(i, 1);
+  }
   renderGeneratedQuestions();
 }
 
@@ -840,31 +902,30 @@ async function saveEdit(i){
   const newQuestion = document.getElementById(`edit-q-${i}`).value.trim();
   const newAnswer = document.getElementById(`edit-a-${i}`).value.trim();
   const q = generatedQuestions[i];
+  if(!newQuestion || !newAnswer){ alert('Question and answer cannot be empty.'); return; }
 
-  if(!q.edited){
+  const isFreshManualEntry = q.manual && !q.question;
+  if(!q.edited && !isFreshManualEntry){
     q.originalQuestion = q.question;
     q.originalAnswer = q.answer;
+    q.edited = true;
   }
   q.question = newQuestion;
   q.answer = newAnswer;
-  q.edited = true;
   editingIndices.delete(i);
   renderGeneratedQuestions();
 
   try {
+    const payload = { question: newQuestion, answer: newAnswer };
+    if(q.originalQuestion){
+      payload.original_question = q.originalQuestion;
+      payload.original_answer = q.originalAnswer;
+      payload.difficulty_feedback = 'edited';
+    }
     if(q.dbId){
-      await sb.from('review_questions').update({
-        question: newQuestion, answer: newAnswer,
-        original_question: q.originalQuestion, original_answer: q.originalAnswer,
-        difficulty_feedback: 'edited'
-      }).eq('id', q.dbId);
+      await sb.from('review_questions').update(payload).eq('id', q.dbId);
     } else {
-      const { data } = await sb.from('review_questions').insert({
-        user_id: currentUser.id,
-        question: newQuestion, answer: newAnswer,
-        original_question: q.originalQuestion, original_answer: q.originalAnswer,
-        difficulty_feedback: 'edited'
-      }).select().single();
+      const { data } = await sb.from('review_questions').insert({ user_id: currentUser.id, ...payload }).select().single();
       if(data){ q.dbId = data.id; }
     }
   } catch(e){ /* non-blocking */ }
