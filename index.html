@@ -681,6 +681,9 @@ async function openQuestionGenerator(){
       <div class="field"><label>Topic (for organizing these in your review bank)</label>
         <input type="text" id="qgen-topic" placeholder="e.g. Hematology, Infectious disease" style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:7px; font-size:.9rem;">
       </div>
+      <div class="field"><label>Number of questions</label>
+        <input type="number" id="qgen-count" value="7" min="1" max="20" style="width:100px; padding:9px 11px; border:1px solid var(--line); border-radius:7px; font-size:.9rem;">
+      </div>
       <div class="field"><label>Paste article text</label>
         <textarea id="article-text" style="width:100%; height:220px; padding:12px; border:1px solid var(--line); border-radius:7px; font-family:inherit; font-size:.9rem;" placeholder="Paste the full article text here..."></textarea>
       </div>
@@ -757,7 +760,12 @@ async function generateQuestions(){
       .limit(15);
 
     const { data, error } = await sb.functions.invoke('generate-questions', {
-      body: { articleText, calibrationNotes, recentFeedback: feedbackHistory || [] }
+      body: {
+        articleText,
+        calibrationNotes,
+        recentFeedback: feedbackHistory || [],
+        questionCount: parseInt(document.getElementById('qgen-count').value, 10) || 7
+      }
     });
     if(error) throw error;
     generatedQuestions = (data.questions || []).map(q => ({ ...q, feedback:null, note:'' }));
