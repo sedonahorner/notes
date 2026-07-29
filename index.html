@@ -113,6 +113,21 @@
   .icon-btn.danger{ color:var(--flag); border-color:#EBC9C9; }
   .icon-btn.danger:hover{ background:var(--flag-bg); }
 
+  /* Question generator */
+  .qcard{ background:#fff; border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; margin-bottom:12px; }
+  .qcard .qnum{ font-family:'IBM Plex Mono'; font-size:.72rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; }
+  .qcard .qtext{ font-weight:600; margin:6px 0 8px; color:var(--navy); }
+  .qcard .qanswer{ background:var(--pearl); border-left:3px solid var(--accent); padding:8px 12px; border-radius:0 6px 6px 0; font-size:.9rem; margin-bottom:10px; display:none; }
+  .qcard .qanswer.open{ display:block; }
+  .feedback-row{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .fb-btn{ background:none; border:1px solid var(--line); border-radius:6px; padding:5px 10px; font-size:.76rem; color:var(--ink-soft); }
+  .fb-btn:hover{ background:var(--paper); }
+  .fb-btn.selected{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .calibration-box{ background:var(--pearl); border:1px solid var(--pearl-border); border-radius:8px; padding:12px 14px; margin-bottom:16px; }
+  .calibration-box textarea{ width:100%; min-height:60px; border:1px solid var(--pearl-border); border-radius:6px; padding:8px 10px; font-size:.85rem; font-family:inherit; }
+  .spinner{ display:inline-block; width:14px; height:14px; border:2px solid var(--pearl-border); border-top-color:var(--navy); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
   .note-body{ padding:0 18px 18px; border-top:1px solid var(--line); display:none; }
   .note-body.open{ display:block; padding-top:14px; }
   .rendered h1,.rendered h2,.rendered h3{ font-size:1.1rem; margin-top:1em; }
@@ -208,6 +223,7 @@
       <input id="search-input" placeholder="Search notes, tags, findings…" oninput="renderNotes()">
     </div>
     <button class="btn-new" onclick="openEditor()">+ New note</button>
+    <button class="btn-new" style="background:var(--navy-mid);" onclick="openQuestionGenerator()">+ Generate questions</button>
     <button class="btn-signout" onclick="signOut()">Sign out</button>
   </div>
 
@@ -518,6 +534,130 @@ async function saveNote(){
   if(error){ alert('Could not save: ' + error.message); return; }
   closeEditor();
   await loadNotes();
+}
+
+/* ---------------- Question generator ---------------- */
+let generatedQuestions = [];
+
+async function openQuestionGenerator(){
+  closeEditor();
+  const slot = document.getElementById('editor-slot');
+
+  let calibrationNotes = '';
+  try {
+    const { data } = await sb.from('user_settings').select('calibration_notes').eq('user_id', currentUser.id).maybeSingle();
+    calibrationNotes = data?.calibration_notes || '';
+  } catch(e){ /* no row yet, fine */ }
+
+  slot.innerHTML = `
+    <div class="editor-wrap">
+      <h3>Generate review questions</h3>
+      <div class="calibration-box">
+        <label style="font-size:.78rem; font-weight:600; color:var(--navy-mid); display:block; margin-bottom:4px;">Question style preferences (adjust anytime based on feedback below)</label>
+        <textarea id="calibration-notes" placeholder="e.g. Keep questions to one clinical decision point, answerable in under 30 seconds. Avoid multi-part scenario stems.">${escapeHtml(calibrationNotes)}</textarea>
+        <div style="text-align:right; margin-top:6px;">
+          <button class="btn-secondary" style="padding:5px 12px; font-size:.78rem;" onclick="saveCalibration()">Save preferences</button>
+        </div>
+      </div>
+      <div class="field"><label>Paste article text</label>
+        <textarea id="article-text" style="width:100%; height:220px; padding:12px; border:1px solid var(--line); border-radius:7px; font-family:inherit; font-size:.9rem;" placeholder="Paste the full article text here..."></textarea>
+      </div>
+      <div class="editor-actions">
+        <button class="btn-secondary" onclick="closeEditor()">Cancel</button>
+        <button class="btn-primary" id="gen-btn" onclick="generateQuestions()">Generate questions</button>
+      </div>
+      <div id="qgen-results" style="margin-top:20px;"></div>
+    </div>
+  `;
+  slot.scrollIntoView({ behavior:'smooth' });
+}
+
+async function saveCalibration(){
+  const notes = document.getElementById('calibration-notes').value;
+  await sb.from('user_settings').upsert({ user_id: currentUser.id, calibration_notes: notes });
+}
+
+async function generateQuestions(){
+  const articleText = document.getElementById('article-text').value.trim();
+  if(!articleText){ alert('Paste in an article first.'); return; }
+  const calibrationNotes = document.getElementById('calibration-notes').value;
+  await saveCalibration();
+
+  const btn = document.getElementById('gen-btn');
+  const resultsEl = document.getElementById('qgen-results');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Generating…';
+  resultsEl.innerHTML = '';
+
+  try {
+    const { data, error } = await sb.functions.invoke('generate-questions', {
+      body: { articleText, calibrationNotes }
+    });
+    if(error) throw error;
+    generatedQuestions = (data.questions || []).map(q => ({ ...q, feedback:null, note:'' }));
+    renderGeneratedQuestions();
+  } catch(e){
+    resultsEl.innerHTML = `<p style="color:var(--flag);">Couldn't generate questions: ${escapeHtml(e.message || String(e))}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate questions';
+  }
+}
+
+function renderGeneratedQuestions(){
+  const resultsEl = document.getElementById('qgen-results');
+  if(generatedQuestions.length === 0){ resultsEl.innerHTML=''; return; }
+  resultsEl.innerHTML = generatedQuestions.map((q, i) => `
+    <div class="qcard">
+      <div class="qnum">Question ${i+1}</div>
+      <div class="qtext">${escapeHtml(q.question)}</div>
+      <div class="qanswer" id="qa-${i}">${escapeHtml(q.answer)}</div>
+      <div class="feedback-row">
+        <button class="icon-btn" onclick="toggleAnswer(${i})">Show answer</button>
+        <span style="width:1px; height:16px; background:var(--line); margin:0 4px;"></span>
+        <button class="fb-btn ${q.feedback==='too_easy'?'selected':''}" onclick="setFeedback(${i},'too_easy')">Too easy</button>
+        <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
+        <button class="fb-btn ${q.feedback==='too_hard'?'selected':''}" onclick="setFeedback(${i},'too_hard')">Too hard</button>
+      </div>
+    </div>
+  `).join('') + `
+    <div class="editor-actions">
+      <button class="btn-primary" onclick="saveQuestionsAsNote()">Save these as a note</button>
+    </div>
+  `;
+}
+
+function toggleAnswer(i){
+  document.getElementById(`qa-${i}`).classList.toggle('open');
+}
+
+async function setFeedback(i, value){
+  generatedQuestions[i].feedback = generatedQuestions[i].feedback === value ? null : value;
+  renderGeneratedQuestions();
+  // Restore expanded answers state isn't preserved on re-render; store feedback for calibration history
+  try {
+    await sb.from('review_questions').insert({
+      user_id: currentUser.id,
+      question: generatedQuestions[i].question,
+      answer: generatedQuestions[i].answer,
+      difficulty_feedback: generatedQuestions[i].feedback
+    });
+  } catch(e){ /* non-blocking */ }
+}
+
+async function saveQuestionsAsNote(){
+  const title = prompt('Title for this note?', 'Review questions');
+  if(!title) return;
+  const body = generatedQuestions.map((q,i) =>
+    `**Q${i+1}.** ${q.question}\n\n> ${q.answer}\n`
+  ).join('\n');
+  const { error } = await sb.from('notes').insert({
+    title, topic: 'Review questions', tags: ['review-questions'], body, user_id: currentUser.id
+  });
+  if(error){ alert('Could not save: ' + error.message); return; }
+  closeEditor();
+  await loadNotes();
+  setTopic('Review questions');
 }
 
 /* ---------------- Utilities ---------------- */
