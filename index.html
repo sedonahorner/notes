@@ -616,6 +616,13 @@ async function openQuestionGenerator(){
         <button class="btn-secondary" onclick="closeEditor()">Cancel</button>
         <button class="btn-primary" id="gen-btn" onclick="generateQuestions()">Generate questions</button>
       </div>
+      <div class="calibration-box" style="margin-top:14px;">
+        <label style="font-size:.78rem; font-weight:600; color:var(--navy-mid); display:block; margin-bottom:6px;">Feel like something wasn't covered? Ask for a question about it specifically</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="topic-request" placeholder="e.g. the dosing table for hydroxyurea" style="flex:1; padding:8px 10px; border:1px solid var(--pearl-border); border-radius:6px; font-size:.85rem;">
+          <button class="icon-btn" id="topic-btn" onclick="addTargetedQuestion()">+ Add question</button>
+        </div>
+      </div>
       <div id="qgen-results" style="margin-top:20px;"></div>
     </div>
   `;
@@ -625,6 +632,36 @@ async function openQuestionGenerator(){
 async function saveCalibration(){
   const notes = document.getElementById('calibration-notes').value;
   await sb.from('user_settings').upsert({ user_id: currentUser.id, calibration_notes: notes });
+}
+
+async function addTargetedQuestion(){
+  const topicRequest = document.getElementById('topic-request').value.trim();
+  if(!topicRequest){ alert('Type what you want a question about first.'); return; }
+  const articleText = document.getElementById('article-text').value.trim();
+  if(!articleText){ alert('Load or paste an article first.'); return; }
+  const calibrationNotes = document.getElementById('calibration-notes').value;
+
+  const btn = document.getElementById('topic-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Adding…';
+
+  try {
+    const { data, error } = await sb.functions.invoke('generate-questions', {
+      body: { articleText, calibrationNotes, topicRequest }
+    });
+    if(error) throw error;
+    const newQ = (data.questions || [])[0];
+    if(!newQ){ throw new Error('No question returned.'); }
+    generatedQuestions.push({ question: newQ.question, answer: newQ.answer, feedback:null, note:'', dbId:null });
+    renderGeneratedQuestions();
+    document.getElementById('topic-request').value = '';
+  } catch(e){
+    alert("Couldn't add that question: " + (e.message || String(e)));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 async function generateQuestions(){
