@@ -6,6 +6,9 @@
 <title>Chartside — Clinical Reference</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2218%22 fill=%22%231C2F4A%22/><text x=%2250%22 y=%2266%22 font-size=%2255%22 fill=%22%23EAF2F8%22 text-anchor=%22middle%22 font-family=%22Georgia%22>C</text></svg>">
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -26,7 +29,7 @@
     --line: #E2E6EB;
     --radius: 10px;
   }
-  *{box-sizing:border-box; font-family:'Times New Roman', Times, serif !important;}
+  *{box-sizing:border-box;}
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font-family:'Inter',sans-serif; font-size:15px; line-height:1.55;
@@ -290,8 +293,8 @@
   </div>
 
   <div style="background:#fff; border-bottom:1px solid var(--line); padding:0 20px; display:flex; gap:4px;">
-    <button class="view-tab active" id="tab-notes" onclick="switchView('notes')">📝 Notes</button>
-    <button class="view-tab" id="tab-bank" onclick="switchView('bank')">📚 Review bank <span id="due-badge" class="count" style="display:none;"></span></button>
+    <button class="view-tab active" id="tab-notes" onclick="switchView('notes')">Notes</button>
+    <button class="view-tab" id="tab-bank" onclick="switchView('bank')">Review bank <span id="due-badge" class="count" style="display:none;"></span></button>
   </div>
 
   <div class="layout" id="notes-view">
@@ -525,7 +528,7 @@ async function uploadFile(event){
   const sizeKB = Math.round(file.size / 1024);
   const textarea = document.getElementById('ed-body');
   const cursorPos = textarea.selectionStart;
-  const insertText = `\n📎 [${file.name}](${url}) (${sizeKB} KB)\n`;
+  const insertText = `\n[${file.name}](${url}) (${sizeKB} KB)\n`;
   textarea.value = textarea.value.slice(0, cursorPos) + insertText + textarea.value.slice(cursorPos);
   statusEl.textContent = '';
   event.target.value = '';
@@ -789,7 +792,7 @@ function renderGeneratedQuestions(){
         <div class="qanswer" id="qa-${i}">${escapeHtml(q.answer)}</div>
         <div class="feedback-row">
           <button class="icon-btn" onclick="toggleAnswer(${i})">Show answer</button>
-          <button class="icon-btn" onclick="startEdit(${i})">✏️ Edit</button>
+          <button class="icon-btn" onclick="startEdit(${i})">Edit</button>
           <span style="width:1px; height:16px; background:var(--line); margin:0 4px;"></span>
           <button class="fb-btn ${q.feedback==='too_easy'?'selected':''}" onclick="setFeedback(${i},'too_easy')">Too easy</button>
           <button class="fb-btn ${q.feedback==='just_right'?'selected':''}" onclick="setFeedback(${i},'just_right')">Just right</button>
@@ -1068,7 +1071,7 @@ function renderReviewCard(){
   if(reviewIndex >= reviewQueue.length){
     content.innerHTML = `
       <div class="flashcard">
-        <h3>Review complete 🎉</h3>
+        <h3>Review complete</h3>
         <p style="color:var(--ink-soft);">You got through ${reviewQueue.length} card${reviewQueue.length===1?'':'s'}.</p>
         <button class="btn-primary" style="margin-top:10px;" onclick="renderBankHome()">Back to bank</button>
       </div>
